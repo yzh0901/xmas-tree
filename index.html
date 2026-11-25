@@ -29,7 +29,10 @@ body{background:radial-gradient(ellipse at 50% 35%,#0d1430 0%,#05070f 70%,#02030
 .sw[aria-pressed=true]{border-color:var(--ink)}
 .btn{height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.16);padding:0 14px;font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.08);cursor:pointer;white-space:nowrap}
 button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-@media(max-width:600px){.greet{bottom:calc(146px + env(safe-area-inset-bottom))}.bar input{width:150px}}
+.music{position:fixed;top:calc(10px + env(safe-area-inset-top));right:10px;border-radius:12px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.45);opacity:.92;line-height:0;z-index:5}
+.music iframe{border:0;display:block}
+#music[hidden]{display:none}
+@media(max-width:600px){.music{right:50%;transform:translateX(50%)}.greet{bottom:calc(146px + env(safe-area-inset-bottom))}.bar input{width:150px}}
 </style>
 </head>
 <body>
@@ -47,6 +50,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-of
   <button class="btn" id="burst">散开</button>
   <button class="btn" id="fs">全屏</button>
   <button class="btn" id="copy">复制链接</button>
+  <button class="btn" id="music" hidden aria-pressed="false">♪ 音乐</button>
 </div>
 <script>
 {
@@ -143,7 +147,8 @@ const burstBtn=document.getElementById('burst');
 function toggle(){if(T){T=0;P.forEach(scatter)}else T=1;burstBtn.textContent=T?'散开':'汇聚'}
 cv.addEventListener('pointerdown',e=>{drag=true;moved=false;lastX=downX=e.clientX;cv.setPointerCapture(e.pointerId)});
 cv.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-lastX;lastX=e.clientX;if(Math.abs(e.clientX-downX)>6)moved=true;ang+=dx*.006;vel=dx*.006*60});
-cv.addEventListener('pointerup',()=>{drag=false;if(!moved){vel=0;toggle()}});
+let skipTap=false;
+cv.addEventListener('pointerup',()=>{drag=false;if(skipTap){skipTap=false;return}if(!moved){vel=0;toggle()}});
 cv.addEventListener('pointercancel',()=>{drag=false});
 burstBtn.addEventListener('click',toggle);
 
@@ -243,6 +248,25 @@ function setTheme(key){
   document.querySelectorAll('.sw').forEach(x=>x.setAttribute('aria-pressed',x.dataset.p===key));
 }
 document.querySelectorAll('.sw').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.p)));
+/* NetEase official embedded player (works on GitHub Pages; blocked inside the Claude preview) */
+const SONG=3455079379,musicBtn=document.getElementById('music');
+const canMusic=/github\.io$/.test(location.hostname)||location.protocol==='file:';
+let player=null,musicOff=false;
+function startMusic(){
+  if(player)return;
+  player=document.createElement('div');player.className='music';
+  const f=document.createElement('iframe');
+  f.width=298;f.height=52;f.allow='autoplay';f.title='背景音乐';
+  f.src=`https://music.163.com/outchain/player?type=2&id=${SONG}&auto=1&height=32`;
+  player.appendChild(f);document.body.appendChild(player);
+  musicBtn.textContent='♪ 关闭';musicBtn.setAttribute('aria-pressed','true');
+}
+function stopMusic(){if(player){player.remove();player=null}musicBtn.textContent='♪ 音乐';musicBtn.setAttribute('aria-pressed','false')}
+if(canMusic){
+  musicBtn.hidden=false;
+  musicBtn.addEventListener('click',e=>{e.stopPropagation();if(player){musicOff=true;stopMusic()}else{musicOff=false;startMusic()}});
+  addEventListener('pointerdown',e=>{if(!musicOff&&!player&&e.target!==musicBtn){startMusic();if(e.target===cv)skipTap=true}},{capture:true});
+}
 document.getElementById('fs').addEventListener('click',()=>{try{const r=document.documentElement.requestFullscreen?.();if(r)r.catch(()=>{})}catch(e){}});
 }
 </script>
