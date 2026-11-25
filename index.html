@@ -19,9 +19,9 @@ html,body{margin:0;height:100%}
 body{background:radial-gradient(ellipse at 50% 35%,#0d1430 0%,#05070f 70%,#020306 100%);color:var(--ink);font:16px/1.55 "Noto Sans SC",system-ui,sans-serif;overflow:hidden}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 #c:active{cursor:grabbing}
-.greet{position:fixed;left:0;right:0;bottom:calc(94px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;padding:0 16px}
+.greet{position:fixed;left:0;right:0;bottom:calc(96px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;padding:0 16px}
 .greet h1{font:400 clamp(42px,6.5vw,72px)/1.05 "Great Vibes",cursive;margin:0;color:var(--acc);text-shadow:0 0 20px var(--acc);transition:color .6s,text-shadow .6s}
-.greet p{margin:4px 0 0;font-size:17px;opacity:.92;text-wrap:balance}
+.greet p{margin:6px 0 0;font-size:17px;opacity:.92;text-wrap:balance}
 .bar{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center;padding:6px;border-radius:28px;background:rgba(10,14,30,.72);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.09);width:max-content;max-width:calc(100% - 20px)}
 .bar input{font-size:16px;font-family:inherit;color:var(--ink);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:22px;height:44px;padding:0 14px;width:140px}
 .sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;display:grid;place-items:center;background:none}
@@ -29,24 +29,28 @@ body{background:radial-gradient(ellipse at 50% 35%,#0d1430 0%,#05070f 70%,#02030
 .sw[aria-pressed=true]{border-color:var(--ink)}
 .btn{height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.16);padding:0 14px;font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.08);cursor:pointer;white-space:nowrap}
 button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-@media(max-width:600px){.greet{bottom:calc(94px + env(safe-area-inset-bottom))}}
+@media(max-width:600px){.greet{bottom:calc(146px + env(safe-area-inset-bottom))}.bar input{width:150px}}
 </style>
 </head>
 <body>
 <canvas id="c" aria-label="一棵由粒子汇聚成的旋转圣诞树"></canvas>
 <div class="greet">
   <h1>Merry Christmas</h1>
+  <p id="line" hidden></p>
 </div>
 <div class="bar">
+  <input id="name" maxlength="16" placeholder="输入名字" aria-label="送给谁">
   <button class="sw" data-p="ice" aria-pressed="true" title="冰雪分层树"><i style="background:radial-gradient(#fff,#5aa8ff)"></i></button>
   <button class="sw" data-p="pink" aria-pressed="false" title="樱花旋涡树"><i style="background:radial-gradient(#fff,#ff6fb1)"></i></button>
   <button class="sw" data-p="classic" aria-pressed="false" title="经典松树"><i style="background:radial-gradient(#ffd27a,#1fa35a)"></i></button>
   <button class="sw" data-p="purple" aria-pressed="false" title="星环树"><i style="background:radial-gradient(#ff9ae8,#7b5bff)"></i></button>
   <button class="btn" id="burst">散开</button>
   <button class="btn" id="fs">全屏</button>
+  <button class="btn" id="copy">复制链接</button>
 </div>
 <script>
 {
+const line=document.getElementById('line');
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
 const rnd=Math.random,TAU=Math.PI*2,clamp=(v,a,b)=>v<a?a:v>b?b:v,cos=Math.cos,sin=Math.sin;
@@ -162,7 +166,7 @@ function frame(now){
   if(!drag){ang+=(reduce?0:.3)*dt+vel*dt;vel*=Math.pow(.04,dt)}
   m=reduce?T:m+clamp(T-m,-dt*.5,dt*.5);
   c=cos(ang);s=sin(ang);
-  const foot=W<600?170:170;
+  const foot=W<600?(line.hidden?220:250):(line.hidden?175:205);
   h=Math.max(150,Math.min((H-foot-50)/1.5,W*.54));
   const blockTop=Math.max(40,(H-foot-1.5*h)*.62+16);
   mid=blockTop+.62*h;cx=W/2;const u=h/420,pal=th.c;
@@ -218,6 +222,19 @@ function frame(now){
 requestAnimationFrame(frame);
 
 /* ---------- controls ---------- */
+const nameEl=document.getElementById('name'),copyBtn=document.getElementById('copy');
+const toParam=new URLSearchParams(location.search).get('to');
+function setName(v){v=v.trim();line.hidden=!v;line.textContent=v?`致 ${v} · 2026 圣诞快乐`:''}
+let saved='';try{saved=localStorage.getItem('xmas-name')||''}catch(e){}
+nameEl.value=toParam!==null?toParam:saved;setName(nameEl.value);
+nameEl.addEventListener('input',()=>{setName(nameEl.value);if(toParam===null){try{localStorage.setItem('xmas-name',nameEl.value)}catch(e){}}});
+copyBtn.addEventListener('click',()=>{
+  const base=location.hostname.endsWith('github.io')?location.origin+location.pathname:'https://yzh0901.github.io/xmas-tree/';
+  const v=nameEl.value.trim(),url=base+(v?'?to='+encodeURIComponent(v):'');
+  const done=t=>{copyBtn.textContent=t;setTimeout(()=>copyBtn.textContent='复制链接',1800)};
+  try{navigator.clipboard.writeText(url).then(()=>done('已复制'),()=>{line.hidden=false;line.textContent=url;done('请手动复制')})}
+  catch(e){line.hidden=false;line.textContent=url;done('请手动复制')}
+});
 function setTheme(key){
   if(THEMES[key]===th)return;
   for(const p of P){p.sx=p.lx;p.sy=p.ly;p.sz=p.lz}
