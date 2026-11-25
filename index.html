@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>电子圣诞树</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* VOICE: tender, festive, a small gift for a friend
+   IDEA: a particle tree that assembles itself out of starlight
+   PICTURE: thousands of fine sparks forming a tiered tree, a flowing spiral ribbon, a rotating galaxy at its base
+   COLOUR and TYPE: deep night ground; palettes ice-white, sakura pink, classic green-gold, dream purple; Great Vibes + Noto Sans SC
+   LAYOUT: full-screen stage, greeting under the tree, one control bar at the foot */
+:root{color-scheme:dark;--ink:#f3efe4;--acc:#cfe9ff;--mute:#a9b1cc}
+:root[data-theme=light],:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%}
+body{background:radial-gradient(ellipse at 50% 35%,#0d1430 0%,#05070f 70%,#020306 100%);color:var(--ink);font:16px/1.55 "Noto Sans SC",system-ui,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#c:active{cursor:grabbing}
+.greet{position:fixed;left:0;right:0;bottom:calc(94px + env(safe-area-inset-bottom));text-align:center;pointer-events:none;padding:0 16px}
+.greet h1{font:400 clamp(42px,6.5vw,72px)/1.05 "Great Vibes",cursive;margin:0;color:var(--acc);text-shadow:0 0 20px var(--acc);transition:color .6s,text-shadow .6s}
+.greet p{margin:4px 0 0;font-size:17px;opacity:.92;text-wrap:balance}
+.bar{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center;padding:6px;border-radius:28px;background:rgba(10,14,30,.72);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.09);width:max-content;max-width:calc(100% - 20px)}
+.bar input{font-size:16px;font-family:inherit;color:var(--ink);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:22px;height:44px;padding:0 14px;width:140px}
+.sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;display:grid;place-items:center;background:none}
+.sw i{width:24px;height:24px;border-radius:50%;display:block}
+.sw[aria-pressed=true]{border-color:var(--ink)}
+.btn{height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.16);padding:0 14px;font:inherit;font-size:14px;color:var(--ink);background:rgba(255,255,255,.08);cursor:pointer;white-space:nowrap}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media(max-width:600px){.greet{bottom:calc(94px + env(safe-area-inset-bottom))}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="一棵由粒子汇聚成的旋转圣诞树"></canvas>
+<div class="greet">
+  <h1>Merry Christmas</h1>
+</div>
+<div class="bar">
+  <button class="sw" data-p="ice" aria-pressed="true" title="冰雪分层树"><i style="background:radial-gradient(#fff,#5aa8ff)"></i></button>
+  <button class="sw" data-p="pink" aria-pressed="false" title="樱花旋涡树"><i style="background:radial-gradient(#fff,#ff6fb1)"></i></button>
+  <button class="sw" data-p="classic" aria-pressed="false" title="经典松树"><i style="background:radial-gradient(#ffd27a,#1fa35a)"></i></button>
+  <button class="sw" data-p="purple" aria-pressed="false" title="星环树"><i style="background:radial-gradient(#ff9ae8,#7b5bff)"></i></button>
+  <button class="btn" id="burst">散开</button>
+  <button class="btn" id="fs">全屏</button>
+</div>
+<script>
+{
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const rnd=Math.random,TAU=Math.PI*2,clamp=(v,a,b)=>v<a?a:v>b?b:v,cos=Math.cos,sin=Math.sin;
+let W=0,H=0,dpr=1;
+
+function rgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16},${n>>8&255},${n&255},${a})`}
+const sprites=new Map();
+function sprite(col){
+  if(sprites.has(col))return sprites.get(col);
+  const c=document.createElement('canvas');c.width=c.height=64;
+  const g=c.getContext('2d'),gr=g.createRadialGradient(32,32,0,32,32,32);
+  gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.15,rgba(col,.9));gr.addColorStop(.45,rgba(col,.2));gr.addColorStop(1,rgba(col,0));
+  g.fillStyle=gr;g.fillRect(0,0,64,64);sprites.set(col,c);return c;
+}
+
+/* ---------- particle pool, shared by all four trees ---------- */
+const small=innerWidth*innerHeight<500000,N=small?6500:11000;
+function scatter(p){const a=rnd()*TAU,b=Math.acos(2*rnd()-1),r=.9+rnd()*.8;p.sx=sin(b)*cos(a)*r;p.sy=.5+cos(b)*r;p.sz=sin(b)*sin(a)*r}
+const P=Array.from({length:N},()=>{const p={ph:rnd()*TAU};scatter(p);p.lx=p.sx;p.ly=p.sy;p.lz=p.sz;return p});
+function reset(p){Object.assign(p,{mt:'s',g:0,al:.7,ta:.2,tf:2.2,pulse:0,d:0,s:1,spin:0,sp:0,jr:0,jy:0,ck:'body',ci:0,x:0,y:0,z:0})}
+function alloc(list){
+  const tot=list.reduce((a,b)=>a+b[0],0);let i=0;
+  for(const [f,fn] of list){const n=Math.round(N*f/tot);for(let j=0;j<n&&i<N;j++,i++){reset(P[i]);fn(P[i],j)}}
+  for(let j=0;i<N;i++,j++){reset(P[i]);list[0][1](P[i],j)}
+  P.sort((a,b)=>a.g-b.g||(a.ck<b.ck?-1:a.ck>b.ck?1:0)||a.ci-b.ci);
+}
+const at=(p,x,y,z)=>{p.mt='s';p.x=x;p.y=y;p.z=z};
+const orbit=(p,rr,a0,y,w)=>{p.mt='o';p.rr=rr;p.a0=a0;p.y=y;p.w=w};
+function galaxy(arms,R,w){return (p,j)=>{
+  const haze=rnd()<.3,rr=haze?.06+(R-.06)*rnd():.06+(R-.06)*Math.sqrt(rnd());
+  const a=haze?rnd()*TAU:(j%arms)*TAU/arms+rr*5.5+(rnd()-.5)*.9*(1-rr*.5);
+  orbit(p,rr,a,1.04+(rnd()-.5)*.02,w);p.ck='base';p.ci=j%4;p.s=.9+rnd()*1.5;p.al=.5+.4*(1-rr/R);p.ta=.1;
+}}
+
+const THEMES={
+  ice:{name:'冰雪分层树',acc:'#cfe9ff',halo:'#3a78ff',snow:'#ffffff',top:'star',topc:'#ffffff',
+    c:{body:['#ffffff','#cfe9ff','#8fd0ff','#5aa8ff'],rib:['#ffffff','#bfe6ff'],base:['#8fd0ff','#5a7dff','#ffffff','#a98cff'],glow:['#ffffff','#9fdcff','#ffe6a8'],dust:['#ffffff','#cfe9ff']},
+    build(){const R=t=>(.03+t*.39)*(.74+.26*((t*7)%1));alloc([
+      [46,(p,j)=>{const t=Math.sqrt(rnd()),a=rnd()*TAU,r=R(t)*(rnd()<.78?.9+.1*rnd():Math.sqrt(rnd()));at(p,cos(a)*r,t,sin(a)*r);p.ci=j%4;p.s=.9+rnd()*1.1;p.d=(1-t)*.35;p.al=.5;p.ta=.35}],
+      [28,galaxy(3,.62,.25)],
+      [20,(p,j)=>{Object.assign(p,{mt:'h',u0:rnd(),sp:.03,turns:4.5,ph0:(j%2)*Math.PI,r0:.06,r1:.42,jr:(rnd()-.5)*.05,jy:(rnd()-.5)*.02,pulse:1,ck:'rib',ci:j%2,s:1+rnd()*1.2,d:.45})}],
+      [2,(p,j)=>{const t=.06+.92*Math.sqrt(rnd()),a=rnd()*TAU,r=R(t);at(p,cos(a)*r,t,sin(a)*r);Object.assign(p,{g:1,ck:'glow',ci:j%3,s:2.2+rnd()*2,d:.5,al:.55,ta:.45,tf:2.8})}],
+      [4,(p,j)=>{const a=rnd()*TAU,r=.15+rnd()*.5;Object.assign(p,{mt:'r',x:cos(a)*r,z:sin(a)*r,y0:rnd()*1.3,yb:1.15,span:1.3,v:.02+rnd()*.05,ck:'dust',ci:j%2,s:.8+rnd(),d:.5,al:.5,ta:.5,tf:3})}]
+    ])}},
+  pink:{name:'樱花旋涡树',acc:'#ffc2e0',halo:'#ff4fa0',snow:'#ffd6ec',top:'heart',topc:'#ff7ab8',
+    c:{body:['#ffd6ec','#ff8fc7','#ffffff','#ff6fb1'],rib:['#ffffff','#ffe3f2'],base:['#ff8fc7','#c48bff','#ffffff','#ff5fa2'],glow:['#ffffff','#ffb3d9','#ff6fb1'],dust:['#ffc2e0','#ffffff']},
+    build(){alloc([
+      [50,(p,j)=>{const u=Math.sqrt(rnd());Object.assign(p,{mt:'h',u0:u,turns:6,spin:.55,ph0:(j%2)*Math.PI,r0:.015,r1:.4,jr:(rnd()-.5)*(.012+.03*u),jy:(rnd()-.5)*.018,ci:j%4,s:.8+rnd()*1.2,d:(1-u)*.35,al:.62,ta:.3})}],
+      [5,(p,j)=>{const t=Math.sqrt(rnd()),a=rnd()*TAU,r=(.015+.4*t)*Math.sqrt(rnd())*.8;at(p,cos(a)*r,t,sin(a)*r);Object.assign(p,{ci:j%4,s:.7+rnd(),al:.28,ta:.15,d:(1-t)*.35})}],
+      [12,(p,j)=>{Object.assign(p,{mt:'h',u0:rnd(),sp:.05,turns:7,spin:.55,ph0:Math.PI/3,r0:.03,r1:.42,jr:(rnd()-.5)*.025,jy:(rnd()-.5)*.012,pulse:1,ck:'rib',ci:j%2,s:1+rnd()*1.3,d:.45,turns:6,ph0:Math.PI/2})}],
+      [16,(p,j)=>{const ring=rnd()<.6,rr=ring?.44+rnd()*.06:.1+rnd()*.32;orbit(p,rr,rnd()*TAU,1.03+(rnd()-.5)*.015,.35);Object.assign(p,{ck:'base',ci:j%4,s:.9+rnd()*1.3,al:ring?.75:.35,ta:.15})}],
+      [9,(p,j)=>{const a=rnd()*TAU,r=.25+rnd()*.7;Object.assign(p,{mt:'f',g:1,x:cos(a)*r,z:sin(a)*r,y0:rnd()*1.45,yt:-.3,span:1.45,v:.05+rnd()*.06,ck:'glow',ci:1+j%2,s:1.1+rnd()*1.3,d:.5,al:.55,ta:.25})}],
+      [3,(p,j)=>{const u=.1+.88*Math.sqrt(rnd());Object.assign(p,{mt:'h',u0:u,turns:6,spin:.55,ph0:(j%2)*Math.PI,r0:.015,r1:.4,g:1,ck:'glow',ci:j%3,s:2.2+rnd()*2,d:.5,al:.55,ta:.45,tf:2.8})}]
+    ])}},
+  classic:{name:'经典松树',acc:'#ffd27a',halo:'#1f9a55',snow:'#ffffff',top:'star',topc:'#ffe08a',
+    c:{body:['#4dff9a','#2ecc71','#9dffc4','#f0fff5'],rib:['#ffd27a','#fff2c4'],base:['#ffd27a','#ff9f43','#fff2c4','#ffffff'],glow:['#ff4d5e','#ffd27a','#ff7a8a'],dust:['#ffffff','#fff2c4'],trunk:['#d29a5c','#8b5a2b']},
+    build(){
+      const tier=()=>{const L=Math.min(5,Math.floor(Math.sqrt(rnd())*6)),v=rnd();return {L,v,y:.03+L*.15+v*.22+(v>.8?(v-.8)*.18:0),r:(.1+L*.064)*v**.8}};
+      alloc([
+      [54,(p,j)=>{const t=tier(),a=rnd()*TAU,r=t.r*(rnd()<.8?.92+.08*rnd():Math.sqrt(rnd()));at(p,cos(a)*r,t.y,sin(a)*r);Object.assign(p,{ci:t.v>.9?3:j%3,s:1+rnd()*1.2,al:.68,ta:.25,d:(1-t.y)*.35})}],
+      [4,(p,j)=>{const a=rnd()*TAU,r=.045*Math.sqrt(rnd());at(p,cos(a)*r,.9+rnd()*.15,sin(a)*r);Object.assign(p,{ck:'trunk',ci:j%2,s:1+rnd(),al:.6,ta:.05,d:0})}],
+      [12,(p,j)=>{Object.assign(p,{mt:'h',u0:rnd(),sp:.015,turns:5,ph0:0,r0:.07,r1:.36,jr:(rnd()-.5)*.014,jy:(rnd()-.5)*.01,pulse:1,ck:'rib',ci:j%2,s:1+rnd(),d:.45})}],
+      [1.2,(p,j)=>{const t=tier(),a=rnd()*TAU,r=t.r*.97;at(p,cos(a)*r,t.y,sin(a)*r);Object.assign(p,{g:1,ck:'glow',ci:j%3,s:2.6+rnd()*2,d:.5,al:.6,ta:.3,tf:1.6})}],
+      [19,(p,j)=>{const ring=rnd()<.55,rr=ring?.5+rnd()*.05:.08+rnd()*.42;orbit(p,rr,rnd()*TAU,1.05+(rnd()-.5)*.012,.12);Object.assign(p,{ck:'base',ci:ring?j%3:3,s:.9+rnd()*1.3,al:ring?.75:.3,ta:.12})}],
+      [8,(p,j)=>{const a=rnd()*TAU,r=.1+rnd()*.7;Object.assign(p,{mt:'f',x:cos(a)*r,z:sin(a)*r,y0:rnd()*1.4,yt:-.3,span:1.4,v:.04+rnd()*.05,ck:'dust',ci:j%2,s:1+rnd()*1.2,d:.5,al:.6,ta:.2})}]
+    ])}},
+  purple:{name:'星环树',acc:'#e0b3ff',halo:'#7b3bff',snow:'#e8dcff',top:'spark',topc:'#ff9ae8',
+    c:{body:['#c9a7ff','#8f6bff','#ffffff','#e0b3ff'],rib:['#ffffff','#ffd1f5'],base:['#b06bff','#ff6fd8','#6b8cff','#ffffff'],glow:['#ff9ae8','#ffffff','#c9a7ff'],dust:['#ffffff','#d8c8ff']},
+    build(){
+      const ring=()=>{const i=Math.floor(Math.sqrt(rnd())*14),y=.06+i*.068;return {i,y,r:.025+y*.4,w:(i%2?1:-1)*(.3+.6*(1-y))}};
+      alloc([
+      [44,(p,j)=>{const g=ring();orbit(p,g.r+(rnd()-.5)*.022,rnd()*TAU,g.y+(rnd()-.5)*.012,g.w);Object.assign(p,{ci:j%4,s:.8+rnd()*1.2,al:.65,ta:.25,d:(1-g.y)*.35})}],
+      [7,(p,j)=>{const a=rnd()*TAU,r=.035*Math.sqrt(rnd());Object.assign(p,{mt:'r',x:cos(a)*r,z:sin(a)*r,y0:rnd(),yb:1,span:1,v:.1+rnd()*.1,ck:'rib',ci:j%2,s:1+rnd(),al:.7,ta:.2,d:.4})}],
+      [32,galaxy(4,.68,.3)],
+      [2,(p,j)=>{const g=ring();orbit(p,g.r,rnd()*TAU,g.y,g.w);Object.assign(p,{g:1,ck:'glow',ci:j%3,s:2.2+rnd()*2,d:.5,al:.55,ta:.45,tf:2.8})}],
+      [15,(p,j)=>{orbit(p,.5+rnd()*.5,rnd()*TAU,-.1+rnd()*1.2,.04);Object.assign(p,{ck:'dust',ci:j%2,s:.6+rnd()*.8,al:.35,ta:.35,tf:3,d:.5})}]
+    ])}}
+};
+let th=THEMES.ice;th.build();
+
+let snow=[];
+function makeSnow(){snow=Array.from({length:Math.round(Math.min(120,W*H/12000))},()=>({x:rnd()*W,y:rnd()*H,r:.4+rnd()*1.3,v:10+rnd()*24,d:rnd()*TAU}))}
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);makeSnow()}
+const ro=new ResizeObserver(resize);ro.observe(document.body);resize();
+
+/* ---------- interaction ---------- */
+let ang=0,vel=0,drag=false,lastX=0,downX=0,moved=false,last=performance.now(),time=0;
+let m=reduce?1:0,T=1;
+const burstBtn=document.getElementById('burst');
+function toggle(){if(T){T=0;P.forEach(scatter)}else T=1;burstBtn.textContent=T?'散开':'汇聚'}
+cv.addEventListener('pointerdown',e=>{drag=true;moved=false;lastX=downX=e.clientX;cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-lastX;lastX=e.clientX;if(Math.abs(e.clientX-downX)>6)moved=true;ang+=dx*.006;vel=dx*.006*60});
+cv.addEventListener('pointerup',()=>{drag=false;if(!moved){vel=0;toggle()}});
+cv.addEventListener('pointercancel',()=>{drag=false});
+burstBtn.addEventListener('click',toggle);
+
+/* ---------- projection ---------- */
+let c=1,s=0,h=400,cx=0,mid=0;const tilt=.42,ct=cos(tilt),st=sin(tilt),F=2.6;
+let SX=0,SY=0,K=1,DA=1;
+function proj(x,y,z){
+  const px=x*c-z*s,pz=x*s+z*c,Y=y-.55,y2=Y*ct-pz*st,z2=Y*st+pz*ct;
+  K=F/(F+z2);SX=cx+px*h*K;SY=mid+y2*h*K;DA=.3+.7*clamp(1-(z2+.6)/1.2,0,1);
+}
+function topShape(kind,x,y,r){
+  ctx.beginPath();
+  if(kind==='heart'){for(let i=0;i<=40;i++){const t=i/40*TAU;ctx.lineTo(x+16*sin(t)**3*r/16,y-(13*cos(t)-5*cos(2*t)-2*cos(3*t)-cos(4*t))*r/16)}}
+  else{const n=kind==='spark'?4:5,inner=kind==='spark'?.22:.42,rot=sin(time*.8)*.12;for(let k=0;k<n*2;k++){const rr=k%2?r*inner:r,a=-Math.PI/2+k*Math.PI/n+rot;ctx.lineTo(x+cos(a)*rr,y+sin(a)*rr)}}
+  ctx.fill();
+}
+
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;time+=dt;
+  if(!drag){ang+=(reduce?0:.3)*dt+vel*dt;vel*=Math.pow(.04,dt)}
+  m=reduce?T:m+clamp(T-m,-dt*.5,dt*.5);
+  c=cos(ang);s=sin(ang);
+  const foot=W<600?170:170;
+  h=Math.max(150,Math.min((H-foot-50)/1.5,W*.54));
+  const blockTop=Math.max(40,(H-foot-1.5*h)*.62+16);
+  mid=blockTop+.62*h;cx=W/2;const u=h/420,pal=th.c;
+
+  ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;ctx.clearRect(0,0,W,H);
+  const hg=ctx.createRadialGradient(cx,mid,0,cx,mid,h*.9);
+  hg.addColorStop(0,rgba(th.halo,.16*m));hg.addColorStop(1,rgba(th.halo,0));
+  ctx.fillStyle=hg;ctx.fillRect(0,0,W,H);
+  proj(0,1.04,0);ctx.save();ctx.translate(SX,SY);ctx.scale(1,.38);ctx.globalAlpha=.5*m;
+  const bg=h*.62;ctx.drawImage(sprite(pal.base[1]),-bg,-bg,bg*2,bg*2);ctx.restore();
+  ctx.fillStyle=th.snow;
+  for(const f of snow){
+    if(!reduce){f.y+=f.v*dt;f.x+=sin(time+f.d)*10*dt;if(f.y>H+4){f.y=-4;f.x=rnd()*W}}
+    ctx.globalAlpha=.25+f.r/4;ctx.fillRect(f.x,f.y,f.r*1.4,f.r*1.4);
+  }
+
+  ctx.globalCompositeOperation='lighter';
+  let cur='';
+  for(const p of P){
+    let x,y,z,a=p.al+p.ta*sin(p.tf*time+p.ph);
+    switch(p.mt){
+      case 'h':{const uu=p.sp?(p.u0+time*p.sp)%1:p.u0,r=p.r0+uu*p.r1+p.jr,aa=uu*TAU*p.turns+p.ph0+time*p.spin;
+        x=cos(aa)*r;y=uu+p.jy;z=sin(aa)*r;if(p.pulse)a*=.45+.55*Math.max(0,sin(uu*48-time*5));break}
+      case 'o':{const aa=p.a0+time*p.w;x=cos(aa)*p.rr;y=p.y;z=sin(aa)*p.rr;break}
+      case 'r':x=p.x;z=p.z;y=p.yb-((p.y0+time*p.v)%p.span);break;
+      case 'f':y=p.yt+((p.y0+time*p.v)%p.span);x=p.x+sin(time*1.4+p.ph)*.04;z=p.z+cos(time*1.1+p.ph)*.04;break;
+      default:x=p.x;y=p.y;z=p.z;
+    }
+    let e=clamp((m-p.d)/.5,0,1);e=1-(1-e)**3;
+    if(e<1){
+      const w=time*.15+p.ph,qx=p.sx+sin(w)*.05,qy=p.sy+cos(w*1.3)*.05,qz=p.sz;
+      x=qx+(x-qx)*e;y=qy+(y-qy)*e;z=qz+(z-qz)*e;
+    }
+    p.lx=x;p.ly=y;p.lz=z;
+    proj(x,y,z);
+    const col=pal[p.ck][p.ci];
+    ctx.globalAlpha=clamp(a*DA,0,1);
+    if(p.g){const r=p.s*u*4*K;ctx.drawImage(sprite(col),SX-r,SY-r,r*2,r*2)}
+    else{if(col!==cur){ctx.fillStyle=col;cur=col}const r=p.s*u*K;ctx.fillRect(SX-r/2,SY-r/2,r,r)}
+  }
+
+  const te=clamp((m-.5)/.5,0,1);
+  if(te>0){
+    proj(0,-.05,0);
+    const pulse=1+.1*sin(time*2.4),r=u*(th.top==='star'&&th===THEMES.classic?25:20)*pulse*te;
+    ctx.globalAlpha=.7*te;const g=r*3.2;ctx.drawImage(sprite(th.topc),SX-g,SY-g,g*2,g*2);
+    ctx.globalCompositeOperation='source-over';ctx.globalAlpha=te;
+    ctx.shadowColor=th.topc;ctx.shadowBlur=r*1.2;ctx.fillStyle=th.topc;
+    topShape(th.top,SX,SY,r);ctx.shadowBlur=0;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- controls ---------- */
+function setTheme(key){
+  if(THEMES[key]===th)return;
+  for(const p of P){p.sx=p.lx;p.sy=p.ly;p.sz=p.lz}
+  th=THEMES[key];th.build();m=reduce?1:0;T=1;burstBtn.textContent='散开';
+  document.documentElement.style.setProperty('--acc',th.acc);
+  document.querySelectorAll('.sw').forEach(x=>x.setAttribute('aria-pressed',x.dataset.p===key));
+}
+document.querySelectorAll('.sw').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.p)));
+document.getElementById('fs').addEventListener('click',()=>{try{const r=document.documentElement.requestFullscreen?.();if(r)r.catch(()=>{})}catch(e){}});
+}
+</script>
+</body>
+</html>
